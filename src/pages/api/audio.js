@@ -5,30 +5,61 @@ export default async function handler(req, res) {
 
   if (!query) return res.status(400).json({ error: 'No query' });
 
-  // We pretend to be a real Android phone to bypass blocks
+  // THE HYDRA: List of databases to try in order
+  const SERVERS = [
+    'https://saavn.me/search/songs',          // Mirror 1 (Often less strict)
+    'https://saavn.dev/api/search/songs',     // Original (Strict)
+    'https://jiosaavn-api-private-cv76.onrender.com/search/songs' // Mirror 2
+  ];
+
+  // Headers to look like a real browser
   const HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G981B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.162 Mobile Safari/537.36',
-    'Accept': 'application/json'
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
   };
 
-  try {
-    // Ask Saavn for the song
-    const saavnUrl = `https://saavn.dev/api/search/songs?query=${encodeURIComponent(query)}`;
-    const response = await axios.get(saavnUrl, { headers: HEADERS });
-    
-    const data = response.data.data || response.data;
-
-    if (data && data.results && data.results.length > 0) {
-      // Grab the highest quality link
-      const song = data.results[0];
-      const audioUrl = song.downloadUrl[4]?.url || song.downloadUrl[song.downloadUrl.length - 1]?.url;
+  // LOOP through the servers
+  for (const server of SERVERS) {
+    try {
+      console.log(`Trying server: ${server}...`);
       
-      return res.status(200).json({ url: audioUrl });
-    } else {
-      return res.status(404).json({ error: 'Not found' });
+      const response = await axios.get(server, { 
+        params: { query: query },
+        headers: HEADERS,
+        timeout: 4000 // Give up after 4 seconds
+      });
+
+      const data = response.data.data || response.data;
+      const results = data.results || data; // Handle different API structures
+
+      if (results && results.length > 0) {
+        const song = results[0];
+        
+        // ROBUST LINK FINDER
+        // Different APIs store the link in different places (downloadUrl vs download_links)
+        // And use different keys (url vs link)
+        let audioUrl = null;
+
+        const downloads = song.downloadUrl || song.download_links;
+        
+        if (Array.isArray(downloads)) {
+          // Try to get the highest quality (last item or index 4)
+          const best = downloads[4] || downloads[downloads.length - 1];
+          audioUrl = best.url || best.link; 
+        } else {
+          audioUrl = downloads; // Sometimes it's just a string
+        }
+
+        if (audioUrl) {
+          return res.status(200).json({ url: audioUrl, source: server });
+        }
+      }
+    } catch (error) {
+      console.log(`Server ${server} failed. Switching...`);
+      // Continue to next server in list
     }
-  } catch (error) {
-    return res.status(500).json({ error: 'Server failed to fetch audio' });
   }
+
+  // If all failed
+  return res.status(500).json({ error: 'All vaults locked' });
 }
 
