@@ -11,21 +11,18 @@ export default function Home() {
   const handleSearch = async () => {
     if (!query) return alert('Type a song name!');
     setLoading(true);
-    setStatus('Scanning vaults...');
+    setStatus('Asking Vercel Server...');
     
     try {
-      // 1. UNSTOPPABLE SEARCH (iTunes)
-      // This works 100% of the time to get the song list and the "Safe Mode" audio.
-      const res = await axios.get(`https://itunes.apple.com/search?term=${encodeURIComponent(query)}&media=music&limit=10`);
+      // FIX: We call OUR server (/api/search), not Apple directly.
+      const res = await axios.get(`/api/search?query=${encodeURIComponent(query)}`);
       
       if (res.data.results && res.data.results.length > 0) {
         const cleanTracks = res.data.results.map(item => ({
           title: item.trackName,
           artist: item.artistName,
           image: item.artworkUrl100.replace('100x100', '400x400'),
-          // SAFE MODE: The 30s official preview from Apple (Never blocks)
           previewUrl: item.previewUrl, 
-          // FULL MODE: We try to find the full Saavn link later
           saavnQuery: `${item.trackName} ${item.artistName}`
         }));
         setTracks(cleanTracks);
@@ -34,45 +31,40 @@ export default function Home() {
         setStatus('No songs found.');
       }
     } catch (error) {
-      setStatus('Network Error.');
+      console.error(error);
+      setStatus('Server Error. Try again.');
     }
     setLoading(false);
   };
 
   const playSong = async (track) => {
-    setCurrentSong(null); // Reset player
-    setStatus(`Loading: ${track.title}...`);
-
-    // STRATEGY A: Try to get Full Song via Premium Proxy
-    try {
-      // We use 'corsproxy.io' which is much stronger than 'allorigins'
-      const saavnApi = `https://saavn.dev/api/search/songs?query=${encodeURIComponent(track.saavnQuery)}`;
-      const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(saavnApi)}`;
-      
-      const res = await axios.get(proxyUrl);
-      const data = res.data.data || res.data;
-
-      if (data && data.results && data.results.length > 0) {
-        // We found the full song!
-        const fullAudio = data.results[0].downloadUrl[4]?.url || data.results[0].downloadUrl[data.results[0].downloadUrl.length - 1]?.url;
-        setCurrentSong({ url: fullAudio, type: 'Full Version' });
-        setStatus('Playing Full Version 🟢');
-        return;
-      }
-    } catch (e) {
-      console.log("Full version blocked. Switching to Safe Mode.");
-    }
-
-    // STRATEGY B: Fallback to Safe Mode (iTunes Preview)
-    // If the proxy failed, we just play the preview. It ALWAYS works.
+    // Start with the Safe Preview immediately
     setCurrentSong({ url: track.previewUrl, type: 'Preview Mode (30s)' });
-    setStatus('Server blocked. Playing Preview 🟡');
+    setStatus('Playing Preview (Safe Mode)');
+
+    // Then try to upgrade to full version in the background
+    try {
+        const saavnApi = `https://saavn.dev/api/search/songs?query=${encodeURIComponent(track.saavnQuery)}`;
+        const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(saavnApi)}`;
+        
+        const res = await axios.get(proxyUrl);
+        const data = res.data.data || res.data;
+
+        if (data && data.results && data.results.length > 0) {
+          const fullAudio = data.results[0].downloadUrl[4]?.url || data.results[0].downloadUrl[data.results[0].downloadUrl.length - 1]?.url;
+          // Upgrade the player
+          setCurrentSong({ url: fullAudio, type: 'Full Version 🟢' });
+          setStatus('Upgraded to Full Version 🟢');
+        }
+    } catch (e) {
+        console.log("Full version blocked. Staying on preview.");
+    }
   };
 
   return (
     <div style={{ backgroundColor: '#000', minHeight: '100vh', color: '#fff', padding: '20px', fontFamily: 'sans-serif' }}>
       <h1 style={{ textAlign: 'center', color: '#1DB954', borderBottom: '1px solid #333', paddingBottom: '20px' }}>
-        YTIFY: FAIL-SAFE
+        YTIFY: DEPLOYED
       </h1>
 
       <div style={{ maxWidth: '600px', margin: '0 auto' }}>
