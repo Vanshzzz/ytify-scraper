@@ -5,61 +5,76 @@ export default async function handler(req, res) {
 
   if (!query) return res.status(400).json({ error: 'No query' });
 
-  // THE HYDRA: List of databases to try in order
-  const SERVERS = [
-    'https://saavn.me/search/songs',          // Mirror 1 (Often less strict)
-    'https://saavn.dev/api/search/songs',     // Original (Strict)
-    'https://jiosaavn-api-private-cv76.onrender.com/search/songs' // Mirror 2
+  // --- ENGINE 1: SAAVN (High Quality) ---
+  const SAAVN_SERVERS = [
+    'https://saavn.me/search/songs',
+    'https://saavn.dev/api/search/songs',
+    'https://jiosaavn-api-private-cv76.onrender.com/search/songs'
   ];
 
-  // Headers to look like a real browser
-  const HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-  };
-
-  // LOOP through the servers
-  for (const server of SERVERS) {
+  for (const server of SAAVN_SERVERS) {
     try {
-      console.log(`Trying server: ${server}...`);
-      
+      console.log(`Engine 1 (Saavn): Trying ${server}...`);
       const response = await axios.get(server, { 
         params: { query: query },
-        headers: HEADERS,
-        timeout: 4000 // Give up after 4 seconds
+        timeout: 3000 // Quick timeout so we can switch engines fast
       });
 
       const data = response.data.data || response.data;
-      const results = data.results || data; // Handle different API structures
+      const results = data.results || data;
 
       if (results && results.length > 0) {
         const song = results[0];
-        
-        // ROBUST LINK FINDER
-        // Different APIs store the link in different places (downloadUrl vs download_links)
-        // And use different keys (url vs link)
-        let audioUrl = null;
-
+        // Robust link finder
         const downloads = song.downloadUrl || song.download_links;
+        let audioUrl = Array.isArray(downloads) ? (downloads[4]?.url || downloads[downloads.length - 1]?.url) : downloads;
         
-        if (Array.isArray(downloads)) {
-          // Try to get the highest quality (last item or index 4)
-          const best = downloads[4] || downloads[downloads.length - 1];
-          audioUrl = best.url || best.link; 
-        } else {
-          audioUrl = downloads; // Sometimes it's just a string
-        }
-
-        if (audioUrl) {
-          return res.status(200).json({ url: audioUrl, source: server });
-        }
+        if (audioUrl) return res.status(200).json({ url: audioUrl, source: 'Saavn' });
       }
-    } catch (error) {
-      console.log(`Server ${server} failed. Switching...`);
-      // Continue to next server in list
+    } catch (e) {
+      // Ignore and try next server
     }
   }
 
-  // If all failed
-  return res.status(500).json({ error: 'All vaults locked' });
+  // --- ENGINE 2: YOUTUBE/PIPED (The Rescue) ---
+  // If Saavn failed, we ask Piped for the YouTube audio stream
+  const PIPED_SERVERS = [
+    'https://pipedapi.kavin.rocks',
+    'https://api.piped.yt',
+    'https://piped-api.privacy.com.de'
+  ];
+
+  for (const pipedApi of PIPED_SERVERS) {
+    try {
+      console.log(`Engine 2 (YouTube): Trying ${pipedApi}...`);
+      
+      // 1. Search for the video
+      const searchRes = await axios.get(`${pipedApi}/search`, {
+        params: { q: query, filter: 'music_songs' },
+        timeout: 4000
+      });
+
+      if (searchRes.data.items && searchRes.data.items.length > 0) {
+        const videoId = searchRes.data.items[0].url.split('=')[1];
+
+        // 2. Get the audio stream link
+        const streamRes = await axios.get(`${pipedApi}/streams/${videoId}`, { timeout: 4000 });
+        const audioStreams = streamRes.data.audioStreams;
+
+        if (audioStreams && audioStreams.length > 0) {
+          // Get the best audio quality (usually the largest file size or highest bitrate)
+          // We sort to find the best .m4a stream
+          const bestStream = audioStreams.find(s => s.format === 'M4A') || audioStreams[0];
+          
+          return res.status(200).json({ url: bestStream.url, source: 'YouTube' });
+        }
+      }
+    } catch (e) {
+      console.log(`Piped ${pipedApi} failed.`);
+    }
+  }
+
+  // If BOTH Engines fail
+  return res.status(500).json({ error: 'All engines failed' });
 }
 
