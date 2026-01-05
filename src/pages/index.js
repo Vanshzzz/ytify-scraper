@@ -11,10 +11,10 @@ export default function Home() {
   const handleSearch = async () => {
     if (!query) return alert('Type a song name!');
     setLoading(true);
-    setStatus('Asking Vercel Server...');
+    setStatus('Searching Vercel Database...');
     
     try {
-      // FIX: We call OUR server (/api/search), not Apple directly.
+      // 1. Search via our Bridge (Bypasses CORS)
       const res = await axios.get(`/api/search?query=${encodeURIComponent(query)}`);
       
       if (res.data.results && res.data.results.length > 0) {
@@ -23,7 +23,8 @@ export default function Home() {
           artist: item.artistName,
           image: item.artworkUrl100.replace('100x100', '400x400'),
           previewUrl: item.previewUrl, 
-          saavnQuery: `${item.trackName} ${item.artistName}`
+          // We save this query to find the full song later
+          fullSearchQuery: `${item.trackName} ${item.artistName}`
         }));
         setTracks(cleanTracks);
         setStatus('');
@@ -31,40 +32,36 @@ export default function Home() {
         setStatus('No songs found.');
       }
     } catch (error) {
-      console.error(error);
-      setStatus('Server Error. Try again.');
+      setStatus('Search failed.');
     }
     setLoading(false);
   };
 
   const playSong = async (track) => {
-    // Start with the Safe Preview immediately
-    setCurrentSong({ url: track.previewUrl, type: 'Preview Mode (30s)' });
-    setStatus('Playing Preview (Safe Mode)');
+    // 1. Play Preview Immediately (So it feels fast)
+    setCurrentSong({ url: track.previewUrl, type: 'Preview (Loading Full...)' });
+    setStatus('Buffering Full Quality...');
 
-    // Then try to upgrade to full version in the background
     try {
-        const saavnApi = `https://saavn.dev/api/search/songs?query=${encodeURIComponent(track.saavnQuery)}`;
-        const proxyUrl = `https://corsproxy.io/?url=${encodeURIComponent(saavnApi)}`;
-        
-        const res = await axios.get(proxyUrl);
-        const data = res.data.data || res.data;
-
-        if (data && data.results && data.results.length > 0) {
-          const fullAudio = data.results[0].downloadUrl[4]?.url || data.results[0].downloadUrl[data.results[0].downloadUrl.length - 1]?.url;
-          // Upgrade the player
-          setCurrentSong({ url: fullAudio, type: 'Full Version 🟢' });
-          setStatus('Upgraded to Full Version 🟢');
-        }
+      // 2. Ask OUR Server to get the Full Link
+      // This bypasses the browser block because it's an internal request
+      const res = await axios.get(`/api/audio?query=${encodeURIComponent(track.fullSearchQuery)}`);
+      
+      if (res.data.url) {
+        // 3. Swap to Full Version seamlessly
+        setCurrentSong({ url: res.data.url, type: 'Full Version 🟢' });
+        setStatus('Playing Full Version 🟢');
+      }
     } catch (e) {
-        console.log("Full version blocked. Staying on preview.");
+      console.log("Full audio fetch failed. Keeping preview.");
+      setStatus('Full version unavailable. Playing Preview 🟡');
     }
   };
 
   return (
     <div style={{ backgroundColor: '#000', minHeight: '100vh', color: '#fff', padding: '20px', fontFamily: 'sans-serif' }}>
       <h1 style={{ textAlign: 'center', color: '#1DB954', borderBottom: '1px solid #333', paddingBottom: '20px' }}>
-        YTIFY: DEPLOYED
+        YTIFY: UNLOCKED
       </h1>
 
       <div style={{ maxWidth: '600px', margin: '0 auto' }}>
