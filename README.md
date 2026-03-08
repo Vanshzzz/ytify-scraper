@@ -1,36 +1,109 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🎵 YTIFY: UNLOCKED
 
-## Getting Started
+> A stealth, multi-engine music streaming web app that refuses to die.
 
-First, run the development server:
+Built with **Next.js**, deployed on **Vercel**. When Spotify locked their API and YouTube blocked scrapers, this app pivoted — again and again — until it worked.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+-----
+
+## 🚀 What It Does
+
+Search any song and play it instantly. No account. No subscription.
+
+- Searches music via **Apple iTunes API**
+- Plays a **preview instantly** while fetching the full version in the background
+- Seamlessly **swaps to full audio** when ready (user never notices the switch)
+- Falls back across **multiple audio engines** if any source fails
+
+-----
+
+## ⚙️ How It Works (The Architecture)
+
+The entire backend is a **self-healing, multi-engine proxy system** built as Next.js serverless functions. The browser never touches external APIs directly — all requests go through our server to bypass CORS and avoid detection.
+
+### Audio Engine Priority
+
+```
+Engine 1: JioSaavn (High Quality)
+  └── saavn.me → saavn.dev → jiosaavn private instance
+
+Engine 2: YouTube via Piped (Rescue)
+  └── pipedapi.kavin.rocks → api.piped.yt → piped-api.privacy.com.de
+
+Engine 3: Apple iTunes (Preview fallback)
+  └── Always available as last resort
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+If Engine 1 fails → Engine 2 kicks in automatically. If that fails → Apple preview plays. The user always hears something.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### API Routes
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+|File          |Purpose                                                                   |
+|--------------|--------------------------------------------------------------------------|
+|`search.js`   |Apple iTunes bridge — bypasses CORS by proxying through our server        |
+|`audio.js`    |Dual-engine audio resolver — Saavn first, YouTube/Piped as rescue         |
+|`stealth.js`  |Mobile device header masking — spoofs User-Agent + Referer to avoid blocks|
+|`music.js`    |Direct Saavn search with browser header spoofing                          |
+|`converter.js`|Hydra search — loops Piped + Invidious mirrors until one responds         |
+|`stream.js`   |YouTube stream ID resolver via Piped proxy                                |
 
-## Learn More
+-----
 
-To learn more about Next.js, take a look at the following resources:
+## 🧠 Problems Solved
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+This project was built by hitting walls and engineering around them:
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+|Problem                                 |Solution                                               |
+|----------------------------------------|-------------------------------------------------------|
+|Spotify locked API access for small devs|Pivoted to Apple iTunes + JioSaavn                     |
+|YouTube blocked direct scraping         |Used Piped (open source YouTube proxy)                 |
+|Azure flagged server for scraping       |Moved to Vercel serverless functions                   |
+|CORS blocking browser → API calls       |Built server-side proxy bridge                         |
+|Audio feels slow to load                |Play preview instantly, swap to full version seamlessly|
+|Single API source goes down             |Multi-instance fallback with silent failover           |
+|APIs detect and block bots              |Stealth headers masquerading as real mobile devices    |
 
-## Deploy on Vercel
+-----
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 🛠️ Tech Stack
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **Framework:** Next.js
+- **Deployment:** Vercel (serverless)
+- **Frontend:** React, Axios
+- **Audio Sources:** JioSaavn API, YouTube via Piped, Apple iTunes
+- **Architecture:** Multi-engine proxy with silent failover
+
+-----
+
+## 🏃 Running Locally
+
+```bash
+git clone <your-repo-url>
+cd ytify-unlocked
+npm install
+npm run dev
+```
+
+Open <http://localhost:3000>
+
+-----
+
+## 📚 What I Learned
+
+- How CORS works and why server-side proxying solves it
+- How to build resilient systems with fallback chains
+- How cloud providers detect and flag scraping behavior
+- How to spoof request headers to mimic real devices
+- Serverless function architecture on Vercel
+- How to aggregate multiple third-party APIs into one clean interface
+- UX trick: never make the user wait — play something immediately, upgrade it silently
+
+-----
+
+## ⚠️ Disclaimer
+
+This project was built for educational purposes to learn about APIs, proxying, and web architecture. All audio sources used are publicly accessible APIs. Not intended for commercial use.
+
+-----
+
+*Built on an AMD A6 laptop and a 2021 Android phone running Termux. Constraints breed creativity.*
